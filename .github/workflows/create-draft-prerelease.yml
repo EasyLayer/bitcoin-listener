@@ -1,0 +1,72 @@
+name: 'Create Draft Prerelease'
+
+on:
+  workflow_dispatch:
+    inputs:
+      suffix:
+        description: 'Version suffix for prerelease (e.g., alpha, beta)'
+        required: true
+        default: 'beta'
+      release_type:
+        description: 'Release type to increment (premajor, preminor, prepatch)'
+        required: true
+        default: 'prepatch'
+        type: choice
+        options:
+          - premajor
+          - preminor
+          - prepatch
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+      - name: Setup Node.js
+        uses: actions/setup-node@v2
+        with:
+          node-version: '18'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install Dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Check Security Dependencies
+        uses: ./.github/actions/security/lockfile
+        with:
+          path: 'yarn.lock'
+          type: 'yarn'
+          allowedHosts: 'https://registry.npmjs.org'
+          allowedURLs: ''
+
+      - name: Publish Prerelease Packages
+        id: publish_prerelease
+        run: bash ./scripts/publish-prerelease.sh
+        env:
+          SUFFIX: ${{ github.event.inputs.suffix }}
+          RELEASE_TYPE: ${{ github.event.inputs.release_type }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HUSKY: '0'
+
+      - name: Get Version Number
+        id: get_version
+        run: |
+          version=$(jq -r '.version' lerna.json)
+          echo "VERSION=$version" >> $GITHUB_ENV
+          echo "Version is $version"
+
+      - name: Create Draft Prerelease
+        uses: actions/create-release@v1
+        with:
+          tag_name: "v${{ env.VERSION }}"
+          release_name: "v${{ env.VERSION }} (Prerelease)"
+          draft: true
+          prerelease: true
+          body: |
+            This is an automated prerelease for version v${{ env.VERSION }}.
+            <!-- Add any additional information or release notes here -->
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
